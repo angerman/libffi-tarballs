@@ -4,34 +4,42 @@
 # the lack of recent releases of libffi (see https://github.com/libffi/libffi/issues/296)
 
 GVERS=3.99999 # see configure.ac / AC_INIT
-
 # make a temporary directory and perform operations in there.
 TMPD=$(mktemp -d)
 TDIR=$(pwd)
 
-# clone the repository (shallow is sufficient)
-git -C ${TMPD} clone --depth 1 https://github.com/libffi/libffi.git
-REPO="${TMPD}/libffi"
+# get the directory of the script
+SCRIPTDIR=$(dirname "$0")
+# find it's absolute path.
 
-# record the revision and create a copy of only the files
-# contained in the repository at libffi-<revision>
-GHASH=$(git -C ${REPO} rev-parse --short HEAD)
-GDATE=$(git -C ${REPO} log -1 --pretty=format:%cd --date=format:%Y%m%d)
+# drop all preexisting libffi-* tarballs.
+# that way there will only be one after
+# the generation of the tarball.
+rm libffi-*
+
+(cd "$TMPD" || exit
+ # clone the repository (shallow is sufficient)
+ git clone --depth 1 https://github.com/libffi/libffi.git
+ # record the revision and create a copy of only the files
+ # contained in the repository at libffi-<revision>
+ GHASH=$(cd libffi && git rev-parse --short HEAD)
+ GDATE=$(cd libffi && git log -1 --pretty=format:%cd --date=format:%Y%m%d)
+ SUFFIX="${GVERS}+git${GDATE}+${GHASH}"
+ (cd libffi && ./autogen.sh && ./configure && make dist)
+ # package it up
+ DISTLIB="libffi-${GVERS}.tar.gz"
+ FINALLIB="libffi-${SUFFIX}.tar.gz"
+ mv "libffi/${DISTLIB}" "${TDIR}/${FINALLIB}"
+)
+
+# we can't extract those information from the subshell, rejoice!
+GHASH=$(cd "$TMPD/libffi" && git rev-parse --short HEAD)
+GDATE=$(cd "$TMPD/libffi" && git log -1 --pretty=format:%cd --date=format:%Y%m%d)
 SUFFIX="${GVERS}+git${GDATE}+${GHASH}"
-git -C ${REPO} archive --format=tar --prefix="libffi-${SUFFIX}/" HEAD | tar -C ${TMPD} -x
-
-# run and remove autogen, so we don't have to run it on the CI or elsewhere
-# and as such incure additional dependencies like libtool.
-(cd "${TMPD}/libffi-${SUFFIX}" && ./autogen.sh && rm autogen.sh)
-
-# package it up
-LIB="libffi-${SUFFIX}.tar.gz"
-(cd "${TMPD}" && tar -czf "${LIB}" "libffi-${SUFFIX}")
-mv "$TMPD/$LIB" ./$LIB
 
 # create orphan branch
 git checkout --orphan "libffi-${SUFFIX}"
-git add $LIB
+git add libffi-${SUFFIX}
 cat >README.md <<EOF
 # libffi snapshot tarball for GHC
 
